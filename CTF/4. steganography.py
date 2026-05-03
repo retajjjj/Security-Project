@@ -3,7 +3,6 @@ from PIL import Image
 image = Image.open("../CTF_DATA/CTF4/stego.png")
 w, h = image.size
 px = image.load()
-px[0,8]
 
 
 def int2bin(n):
@@ -24,6 +23,7 @@ def readLSB():
 
 def main():
     op = readLSB()
+    print(repr(op))
 
 
     
