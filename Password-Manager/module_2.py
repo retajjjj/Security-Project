@@ -1,5 +1,6 @@
 from hashlib import sha256
 from Crypto.Cipher import AES
+from module_3 import sign, verify
 import json
 import os
 
