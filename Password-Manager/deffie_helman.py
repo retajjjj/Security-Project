@@ -1,25 +1,21 @@
 import hashlib
 import random
 import json
+import os
 from module_3 import sign, verify
 from module_2 import encrypt, decrypt, hashPassword, loadVault, saveVault
 from module_1 import load_private_key, load_public_key
 
 
-mock_vault = [
-    {"website": "github.com", "username": "alice", "password": "pass123"}
-]
-
-
 #***********************************************************************************
 #key exchange phase
 #***********************************************************************************
-def send(data:dict):
-    with open("a_send_data_to_b.json", 'w') as f:
+def send(data:dict, myusername, hisusername):
+    with open(f"Password-Manager/keys/{myusername}_send_data_to_{hisusername}.json", 'w') as f:
         json.dump(data, f, indent=2)
     
-def recieve():
-    with open("a_recieve_data_from_b.json", 'r') as f:
+def recieve(myusername, hisusername):
+    with open(f"Password-Manager/keys/{hisusername}_send_data_to_{myusername}.json", 'r') as f:
         return json.load(f)
     
 def make_signed_package(data: dict, private_key):
@@ -37,7 +33,7 @@ def calculate_session_key(shared_secret):
     )
     return hashlib.sha256(secret_bytes).digest()
    
-def key_exchange_phase(private_gamal, public_gamal, a,q):
+def key_exchange_phase(private_gamal, public_gamal, a,q, myusername, hisusername):
     
     #generate public and private key
     xa = random.randint(2, q - 2) # <q
@@ -47,20 +43,19 @@ def key_exchange_phase(private_gamal, public_gamal, a,q):
     signed_ya = make_signed_package(ya, private_gamal)
     
     #send signed_ya
-    send(signed_ya)
+    send(signed_ya, myusername, hisusername)
     input("press enter when you recieve the public key from the other device")
     
     #receive signed_yb
-    signed_yb = recieve()
+    signed_yb = recieve(myusername, hisusername)
     
     #verify the signed_yb
-    #note when gamal module is made replace the signed_ya = signed_yb 
-    if not verify_signed_package(signed_ya , public_gamal):
+    
+    if not verify_signed_package(signed_yb , public_gamal):
         raise Exception("Error in sending the public key. the signature is not verified")
     
     #get yb
-    #note when gamal module is made replace the signed_ya = signed_yb 
-    yb = signed_ya["data"]
+    yb = signed_yb["data"]
     
     #compute shared secret key
     K = pow(yb, xa, q)
@@ -76,21 +71,78 @@ def key_exchange_phase(private_gamal, public_gamal, a,q):
 
 def transfer_phase(vault_name, master_password, session_key, private_gamal, public_gamal):
     
+    print("SESSION KEY (sender):", session_key.hex())
     plain_vault_data = loadVault(master_password, vault_name, public_gamal)
-    cipher_vault = saveVault(session_key,vault_name, plain_vault_data, private_gamal)
-    #send(cipher_vault)
-    #return cipher_vault
+    
+    #session_key_str = session_key.hex()
+    #saveVault(session_key,vault_name, plain_vault_data, private_gamal)
+    
+    
+    plaintext = json.dumps(plain_vault_data).encode()
+
+    try:
+        packed = encrypt(session_key, plaintext)
+    except Exception:
+        raise Exception("Encryption failed") 
+    signature = sign(packed.hex(), private_gamal)  # add signature
+
+    vault = {"encrypted_vault": packed.hex(), "signature": signature}
+    with open(vault_name, "w") as file_object:
+        json.dump(vault, file_object)
+    
+    """
+    plain_vault_data = loadVault(master_password, vault_name, public_gamal)
+    # convert session_key bytes to hex string so hashPassword can handle it
+    session_key_str = session_key.hex()
+    saveVault(session_key_str, vault_name, plain_vault_data, private_gamal)
+    #send(json.loads(open(vault_name).read()), myusername, hisusername)
+    """
+    
 
 #***********************************************************************************
 #import phase
 #***********************************************************************************
-def import_phase(vault_name, master_password, session_key, private_gamal ,public_gamal):
+def import_phase(vault_name, master_password, session_key, private_gamal ,public_gamal, myusername):
     
+    print("SESSION KEY (reciever):", session_key.hex())
     input("press enter when you recieve the public key from the other device")
-    #recieve(cipher_vault)
     
-    plain_vault = loadVault(session_key, vault_name, public_gamal)
-    cipher_vault = saveVault(master_password, vault_name, plain_vault, private_gamal)
+    #session_key_str = session_key.hex()
+    #plain_vault = loadVault(session_key.hex(), vault_name, public_gamal)
+    
+    if not os.path.exists(vault_name):
+        raise Exception("Vault does not exist")
+
+    
+
+    with open(vault_name, "r") as file_object:
+        vault = json.load(file_object)
+
+    packed_hex = vault["encrypted_vault"]
+
+    if not verify(packed_hex, vault["signature"], public_gamal):  # verify signature
+        raise Exception("Vault tampered!")
+
+    packed = bytes.fromhex(vault["encrypted_vault"])
+
+    try:
+        plaintext = decrypt(session_key, packed)
+    except Exception:
+        raise Exception("Invalid password or corrupted vault")
+
+    plain_vault = json.loads(plaintext.decode())
+    cipher_vault = saveVault(master_password, get_vault_from_username(myusername), plain_vault, private_gamal)
+    """
+    input("Press enter when you have received the exported vault from the other device: ")
+    #exported_vault = recieve(myusername, hisusername)
+    with open(vault_name, "w") as f:
+        json.dump(vault_name, f)
+    # same fix — convert to hex string
+    session_key_str = session_key.hex()
+    plain_vault = loadVault(session_key_str, vault_name, public_gamal)
+    saveVault(master_password, vault_name, plain_vault, private_gamal)
+    """
+    
     
     
 #***********************************************************************************
@@ -98,34 +150,32 @@ def import_phase(vault_name, master_password, session_key, private_gamal ,public
 #***********************************************************************************
 
 def get_vault_from_username(username):
-    return "vault_file"
+    return f"Password-Manager/keys/{username}_vault.json"
 
-
-
-def main_transfer(username, master_password, username_b):
+def main_transfer(myusername, master_password, hisusername):
     
     #read elgamal xa,ya, yb
-    xa = load_private_key(username, master_password)
-    ya = load_public_key(username)
-    yb = load_public_key(username_b)
+    xa = load_private_key(myusername, master_password)
+    ya = load_public_key(myusername)
+    yb = load_public_key(hisusername)
 
-    vault = get_vault_from_username(username)
+    vault = get_vault_from_username(myusername)
     
-    session_key = key_exchange_phase(xa, yb, ya["alpha"], ya["p"])
-    signed_vault = transfer_phase(vault, master_password, session_key, xa, yb)
-    
-    
-def main_import(username, master_password, username_b):
-    
-    xa = load_private_key(username, master_password)
-    ya = load_public_key(username)
-    yb = load_public_key(username_b)
+    session_key = key_exchange_phase(xa, yb, ya["alpha"], ya["p"], myusername, hisusername)
+    signed_vault = transfer_phase(vault, master_password, session_key, xa, ya)
     
     
-    vault = get_vault_from_username(username)
+def main_import(myusername, master_password, hisusername):
     
-    session_key = key_exchange_phase(xa, yb,ya["alpha"], ya["p"])
-    import_phase(vault, master_password, session_key, xa)
+    xa = load_private_key(myusername, master_password)
+    ya = load_public_key(myusername)
+    yb = load_public_key(hisusername)
+    
+    
+    vault = get_vault_from_username(hisusername)
+    
+    session_key = key_exchange_phase(xa, yb,ya["alpha"], ya["p"], myusername, hisusername)
+    import_phase(vault, master_password, session_key, xa, yb, myusername)
     
     
     
