@@ -1,7 +1,7 @@
 from hashlib import sha256
 from Crypto.Cipher import AES
-from Crypto.Util.Padding import pad
 import json
+import os
 
 plaintext = b"Hello World"
 password = "password123"
@@ -15,63 +15,125 @@ def hashPassword(password):
 def encrypt(key, plaintext):
     cipher = AES.new(key, AES.MODE_GCM)  # create cipher object
     ciphertext, tag = cipher.encrypt_and_digest(plaintext)
-    return cipher.nonce + ciphertext + tag  # tag provides authentication
+    return cipher.nonce + tag + ciphertext  # tag provides authentication
 
 
 def decrypt(key, packed):
     nonce = packed[:16]
-    ciphertext = packed[16:32]
-    tag = packed[32:]
+    tag = packed[16:32]
+    ciphertext = packed[32:]
     cipher = AES.new(key, AES.MODE_GCM, nonce=nonce)
     plaintext = cipher.decrypt_and_verify(ciphertext, tag)
     return plaintext
 
 
-def createVault(password, fileName):
+def saveVault(password, fileName, data, privateKey):
     key = hashPassword(password)
-    data = {"credentials": []}
+    plaintext = json.dumps(data).encode()
 
-    json.dumps(data).encode()
+    try:
+        packed = encrypt(key, plaintext)
+    except Exception:
+        raise Exception("Encryption failed") 
+    signature = sign(packed.hex(), privateKey)  # add signature
 
-    packed = encrypt(key, data)
-
-    vault = {"encrypted_vault": packed.hex(), "signature": None}
-
+    vault = {"encrypted_vault": packed.hex(), "signature": signature}
     with open(fileName, "w") as file_object:
         json.dump(vault, file_object)
 
-def loadVault(password, fileName):
+
+def createVault(password, fileName, privateKey):
+    if os.path.exists(fileName):
+        raise Exception("Vault already exists")
+    data = {"credentials": []}
+    saveVault(password, fileName, data, privateKey)
+
+
+def loadVault(password, fileName, publicKey):
+    if not os.path.exists(fileName):
+        raise Exception("Vault does not exist")
+
     key = hashPassword(password)
 
     with open(fileName, "r") as file_object:
         vault = json.load(file_object)
 
+    packed_hex = vault["encrypted_vault"]
+
+    if not verify(packed_hex, vault["signature"], publicKey):  # verify signature
+        raise Exception("Vault tampered!")
+
     packed = bytes.fromhex(vault["encrypted_vault"])
 
-    plaintext = decrypt(key, packed)
-    return json.loads(plaintext.decode()), vault
+    try:
+        plaintext = decrypt(key, packed)
+    except Exception:
+        raise Exception("Invalid password or corrupted vault")
 
-def saveVault(password, fileName):
-    key = hashPassword(password)
-
-    pass
-
-def add(password, credentials):
-    pass
+    return json.loads(plaintext.decode())
 
 
-def retrieve(password, credentials):
-    pass
+def checkIndex(index, data):
+    if index < 0 or index >= len(data["credentials"]):
+        raise Exception("Invalid index")
 
 
-def update(password, credentials):
-    pass
+def checkCredentials(credentials):
+    required = {"website", "username", "password"}
+    if not isinstance(credentials, dict) or not required.issubset(credentials):
+        raise Exception("Invalid credential format")
 
 
-def accessVault():
-    pass
+def add(password, fileName, credentials, privateKey, publicKey):
+    checkCredentials(credentials)
+    data = loadVault(password, fileName, publicKey)
+    data["credentials"].append(credentials)
+    saveVault(password, fileName, data, privateKey)
 
 
-key = hashPassword(password)
-n, c, t = encrypt(key, plaintext)
-print(decrypt(key, n, c, t))
+def retrieve(password, fileName, index, publicKey):
+    data = loadVault(password, fileName, publicKey)
+    checkIndex(index, data)
+    return data["credentials"][index]
+
+
+def update(password, fileName, credentials, index, privateKey, publicKey):
+    checkCredentials(credentials)
+    data = loadVault(password, fileName, publicKey)
+    checkIndex(index, data)
+    data["credentials"][index] = credentials
+    saveVault(password, fileName, data, privateKey)
+
+
+def delete(password, fileName, index, privateKey, publicKey):
+    data = loadVault(password, fileName, publicKey)
+    checkIndex(index, data)
+    data["credentials"].pop(index)
+    saveVault(password, fileName, data, privateKey)
+
+
+def accessVault(action, password, filename, privateKey, publicKey, **kwargs):
+    if action == "add":
+        return add(password, filename, kwargs["credentials"], privateKey, publicKey)
+
+    elif action == "retrieve":
+        return retrieve(password, filename, kwargs["index"], publicKey)
+
+    elif action == "update":
+        return update(
+            password,
+            filename,
+            kwargs["credentials"],
+            kwargs["index"],
+            privateKey,
+            publicKey,
+        )
+
+    elif action == "delete":
+        return delete(
+            password,
+            filename,
+            kwargs["index"],
+            privateKey,
+            publicKey,
+        )
