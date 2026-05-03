@@ -1,18 +1,36 @@
 import click
+import os
+from deffie_helman import main_transfer, main_import
 
 def create_user():
-    click.echo("\nCreating New User...")
+    
     username = click.prompt("Enter new username")
     password = click.prompt("Enter new master password", hide_input=True)
+    click.echo("Creating User")
     
-    #store password in auth.json
+    
     #generate elgamal public and private key (module 1)
+    click.echo("Elgamal keys generated")
     
-    #generate aes key from master password
     #initialize vault and encrypt is use aes key (module 2)
     #sign the vault (module 3)
+    click.echo("Vault created and encrypted and signed")
+   
     
-    click.echo(f"User '{username}' created successfully!")
+    
+    folder_name = username
+    #replace with vault.json , private.key , public.key
+    file_name = "example.txt"
+
+    folder_path = os.path.join("Users", folder_name)
+    os.makedirs(folder_path, exist_ok=False)
+    
+    
+    file_path = os.path.join(folder_path, file_name)
+    with open(file_path, "w") as f:
+        f.write("This file was created inside the new folder!")
+
+    click.echo(f"user initialized {username}")
     
 
 def login():
@@ -22,19 +40,51 @@ def login():
     # Add authentication logic here with auth.json
     
     #verify and decrypt
+    click.echo("Vault verified and decrypted")
+
     #display the functionalities he can do with the vault
-    #return to add_update_delete_view_4
-    click.echo(f"Welcome back, {username}!")
+    click.echo("\nOptions")
+    click.echo("1. Add credential")
+    click.echo("2. View credential")
+    click.echo("3. Update credential")
+    click.echo("4. Delete credential")
+    click.echo("5. Export vault")
+    click.echo("6. Import vault")
+    click.echo("7. Exit")
     
-def add_update_delete_view_4():
-    ...
-    #make the chanfe
+    choice = click.prompt("Please select an option", type=click.Choice(['1', '2', '3', '4', '5', '6', '7']), show_choices=False)
+
+    if choice == '1':
+        add()
+    elif choice == '2':
+        view()
+    elif choice == '3':
+        update()
+    elif choice == '4':
+        delete()
+    elif choice == '5':
+        transfer()
+    elif choice == '6':
+        recieve()
+    elif choice == '7':
+        view()
+   
+def add():
+    website = click.prompt("Website")
+    username = click.prompt("Username")
+    password = click.prompt("Password")
+    
     #encrtpy and sign the vault
     #return to login
-    
-    
-    
-def export():
+def view():
+    ...
+def update():
+    ...
+def delete():
+    ...
+def transfer():
+    ...
+def recieve():
     ...
     
 @click.command()
