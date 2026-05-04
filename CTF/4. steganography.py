@@ -21,9 +21,13 @@ def readLSB():
 
     return output
 
-def main():
-    op = readLSB()
-    print(repr(op))
+
+op = readLSB()
+flag = op.split('\x00')[0]
+print(flag)
+
+    
+
 
 
     
